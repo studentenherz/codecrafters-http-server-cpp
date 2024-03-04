@@ -7,6 +7,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <array>
+
+const size_t REQUEST_BUFFER_SIZE = 2048;
 
 int main(int argc, char **argv) {
 
@@ -47,8 +50,21 @@ int main(int argc, char **argv) {
   
   std::cout << "Waiting for a client to connect...\n";
   
-  accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+  auto client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
   std::cout << "Client connected\n";
+
+	std::array<char, REQUEST_BUFFER_SIZE> buff;
+	if (ssize_t bytes = recv(client_fd, buff.data(), REQUEST_BUFFER_SIZE, 0); bytes > 0){
+		std::cout << bytes << " bytes received:\n\n";
+		std::cout << (char *) buff.data();
+	}
+	else{
+		std::cerr << "Failed to receive with code " << bytes << std::endl;
+		return 1;
+	}
+
+	const std::string response = "HTTP/1.1 200 OK\r\n\r\n";
+	send(client_fd, (void *) response.c_str(), response.size(), 0);
   
   close(server_fd);
 
