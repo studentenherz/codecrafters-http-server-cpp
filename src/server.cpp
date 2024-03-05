@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <array>
-#include <format>
+// #include <format>
 #include <algorithm>
 
 const size_t REQUEST_BUFFER_SIZE = 2048;
@@ -23,7 +23,7 @@ const std::array<int, 2> HttpStatusCode = {200, 404};
 const std::array<std::string, 2> HttpStatusText = {"Ok", "Not Found"};
 
 std::string response_status_line(HttpStatus status){
-	return std::format("HTTP/1.1 {} {}\r\n\r\n", HttpStatusCode[status], HttpStatusText[status]);
+	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n\r\n";
 }
 
 enum HttpMethod{
