@@ -10,6 +10,7 @@
 #include <array>
 // #include <format>
 #include <algorithm>
+#include <regex>
 
 const size_t REQUEST_BUFFER_SIZE = 2048;
 
@@ -49,24 +50,61 @@ bool case_insensitive_equal(std::string s1, std::string s2){
 	return true;
 }
 
-RequestStartLine parse_request_start_line(std::string line){
+RequestStartLine parse_request_start_line(const std::string& req){
 	RequestStartLine rsl;
-	
-	size_t pos = line.find(' ');
-	auto method = line.substr(0, pos);
-	for(size_t i = 0; i < HttpMethodText.size(); i++){
-		if (case_insensitive_equal(method, HttpMethodText[i])){
-			rsl.method = HttpMethod(i);
+
+	std::regex re("(GET|POST) (.+) (.+)", std::regex::icase);
+	std::smatch sm;
+	if (std::regex_search(req, sm, re)){
+		for (size_t i = 0; i < HttpMethodText.size(); i++){
+			if (case_insensitive_equal(HttpMethodText[i], sm[1])){
+				rsl.method = HttpMethod(i);
+				break;
+			}
 		}
+
+		rsl.path = sm[2];
+		rsl.protocol = sm[3];
 	}
-
-	size_t new_pos = line.find(' ', pos + 1);
-	rsl.path = line.substr(pos + 1, new_pos - pos - 1);
-
-	rsl.protocol = line.substr(new_pos + 1);
 
 	return rsl;
 }
+
+
+enum HttpRequestHeader{
+	UserAgent,
+	Host
+};
+
+class RequestHeaders{
+	std::array<std::string, 2> _headers;
+public:
+	std::string& operator[](HttpRequestHeader header){
+		return _headers[(size_t) header];
+	}
+
+	const std::string& operator[](HttpRequestHeader header) const {
+		return _headers[(size_t) header];
+	}
+};
+
+const std::array<std::string, 2> RequestHeadersText = {"User-Agent", "Host"};
+
+RequestHeaders parse_request_headers(const std::string& req){
+	RequestHeaders req_headers;
+
+	for (size_t i = 0; i < RequestHeadersText.size(); i++){
+		std::string reg = RequestHeadersText[i] + ": (.+)";
+		std::regex re(reg, std::regex::icase);
+		std::smatch sm;
+		if (std::regex_search(req, sm, re)){
+			req_headers[HttpRequestHeader(i)] = sm[1];
+		}
+	}
+
+	return req_headers;
+}
+
 
 int main(int argc, char **argv) {
 
@@ -122,9 +160,7 @@ int main(int argc, char **argv) {
 
 	std::cout << buff;
 
-	std::string sline = buff.substr(0, buff.find('\r'));
-
-	auto start_line = parse_request_start_line(sline);
+	auto start_line = parse_request_start_line(buff);
 
 	std::string response;
 	if (start_line.path == "/"){
@@ -135,6 +171,15 @@ int main(int argc, char **argv) {
 		std::string payload = start_line.path.substr(6);
 		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
 
+	}
+	else if (start_line.path == "/user-agent"){
+		auto req_headers = parse_request_headers(buff);
+		std::cout << req_headers[HttpRequestHeader::UserAgent] << std::endl;
+		std::cout << req_headers[HttpRequestHeader::Host] << std::endl;
+
+		std::string payload = req_headers[HttpRequestHeader::UserAgent];
+		response = response_status_line(HttpStatus::Ok);
+		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
 	}
 	else{
 		response = response_status_line(HttpStatus::NotFound) + "\r\n";
