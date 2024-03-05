@@ -23,7 +23,7 @@ const std::array<int, 2> HttpStatusCode = {200, 404};
 const std::array<std::string, 2> HttpStatusText = {"Ok", "Not Found"};
 
 std::string response_status_line(HttpStatus status){
-	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n\r\n";
+	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
 }
 
 enum HttpMethod{
@@ -127,13 +127,15 @@ int main(int argc, char **argv) {
 	auto start_line = parse_request_start_line(sline);
 
 	std::string response;
-	if (start_line.path == "/"){
+	if (start_line.path.starts_with("/echo/")){
 		response = response_status_line(HttpStatus::Ok);
+		std::string payload = start_line.path.substr(6);
+		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+
 	}
 	else{
-		response = response_status_line(HttpStatus::NotFound);
+		response = response_status_line(HttpStatus::NotFound) + "\r\n";
 	}
-	
 
 	send(client_fd, (void *) response.c_str(), response.size(), 0);
   
