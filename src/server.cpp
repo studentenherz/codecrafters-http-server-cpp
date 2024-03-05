@@ -123,12 +123,10 @@ int main(int argc, char **argv) {
 	std::cout << buff;
 
 	std::string sline = buff.substr(0, buff.find('\r'));
-	std::cout << sline << std::endl;
 
 	auto start_line = parse_request_start_line(sline);
 
 	std::string response;
-	std::cout << start_line.path << " " << start_line.path.length() << std::endl;
 	if (start_line.path == "/"){
 		response = response_status_line(HttpStatus::Ok);
 	}
