@@ -127,7 +127,10 @@ int main(int argc, char **argv) {
 	auto start_line = parse_request_start_line(sline);
 
 	std::string response;
-	if (start_line.path.starts_with("/echo/")){
+	if (start_line.path == "/"){
+		response = response_status_line(HttpStatus::Ok) + "\r\n";
+	}
+	else if (start_line.path.starts_with("/echo/")){
 		response = response_status_line(HttpStatus::Ok);
 		std::string payload = start_line.path.substr(6);
 		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
