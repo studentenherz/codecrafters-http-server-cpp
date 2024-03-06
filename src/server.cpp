@@ -11,6 +11,7 @@
 // #include <format>
 #include <algorithm>
 #include <regex>
+#include <thread>
 
 const size_t REQUEST_BUFFER_SIZE = 2048;
 
@@ -70,7 +71,6 @@ RequestStartLine parse_request_start_line(const std::string& req){
 	return rsl;
 }
 
-
 enum HttpRequestHeader{
 	UserAgent,
 	Host
@@ -105,6 +105,48 @@ RequestHeaders parse_request_headers(const std::string& req){
 	return req_headers;
 }
 
+void handleConnection(int client_fd){
+	  std::cout << "Client connected\n";
+
+	std::string buff;
+	buff.resize(REQUEST_BUFFER_SIZE);
+	if (ssize_t bytes = recv(client_fd, buff.data(), REQUEST_BUFFER_SIZE, 0); bytes > 0){
+		std::cout << bytes << " bytes received:\n\n";
+	}
+	else if (bytes < 0){
+		std::cerr << "Failed to receive with code " << bytes << std::endl;
+		exit(1);
+	}
+
+	std::cout << buff;
+
+	auto start_line = parse_request_start_line(buff);
+
+	std::string response;
+	if (start_line.path == "/"){
+		response = response_status_line(HttpStatus::Ok) + "Content-Length: 0\r\n\r\n";
+	}
+	else if (start_line.path.starts_with("/echo/")){
+		response = response_status_line(HttpStatus::Ok);
+		std::string payload = start_line.path.substr(6);
+		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+
+	}
+	else if (start_line.path == "/user-agent"){
+		auto req_headers = parse_request_headers(buff);
+		std::cout << req_headers[HttpRequestHeader::UserAgent] << std::endl;
+		std::cout << req_headers[HttpRequestHeader::Host] << std::endl;
+
+		std::string payload = req_headers[HttpRequestHeader::UserAgent];
+		response = response_status_line(HttpStatus::Ok);
+		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+	}
+	else{
+		response = response_status_line(HttpStatus::NotFound) + "Content-Length: 0\r\n\r\n";
+	}
+
+	send(client_fd, (void *) response.c_str(), response.size(), 0);
+}
 
 int main(int argc, char **argv) {
 
@@ -145,47 +187,13 @@ int main(int argc, char **argv) {
   
   std::cout << "Waiting for a client to connect...\n";
   
-  auto client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-  std::cout << "Client connected\n";
 
-	std::string buff;
-	buff.resize(REQUEST_BUFFER_SIZE);
-	if (ssize_t bytes = recv(client_fd, buff.data(), REQUEST_BUFFER_SIZE, 0); bytes > 0){
-		std::cout << bytes << " bytes received:\n\n";
+	while(true){
+  	int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+
+		std::thread new_thread(handleConnection, client_fd);
+		new_thread.detach();
 	}
-	else{
-		std::cerr << "Failed to receive with code " << bytes << std::endl;
-		return 1;
-	}
-
-	std::cout << buff;
-
-	auto start_line = parse_request_start_line(buff);
-
-	std::string response;
-	if (start_line.path == "/"){
-		response = response_status_line(HttpStatus::Ok) + "\r\n";
-	}
-	else if (start_line.path.starts_with("/echo/")){
-		response = response_status_line(HttpStatus::Ok);
-		std::string payload = start_line.path.substr(6);
-		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-
-	}
-	else if (start_line.path == "/user-agent"){
-		auto req_headers = parse_request_headers(buff);
-		std::cout << req_headers[HttpRequestHeader::UserAgent] << std::endl;
-		std::cout << req_headers[HttpRequestHeader::Host] << std::endl;
-
-		std::string payload = req_headers[HttpRequestHeader::UserAgent];
-		response = response_status_line(HttpStatus::Ok);
-		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-	}
-	else{
-		response = response_status_line(HttpStatus::NotFound) + "\r\n";
-	}
-
-	send(client_fd, (void *) response.c_str(), response.size(), 0);
   
   close(server_fd);
 
