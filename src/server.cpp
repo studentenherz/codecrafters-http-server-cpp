@@ -146,6 +146,7 @@ void handleConnection(int client_fd){
 	}
 
 	send(client_fd, (void *) response.c_str(), response.size(), 0);
+	close(client_fd);
 }
 
 int main(int argc, char **argv) {
