@@ -12,17 +12,24 @@
 #include <algorithm>
 #include <regex>
 #include <thread>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+namespace fs = std::filesystem;
 
 const size_t REQUEST_BUFFER_SIZE = 2048;
 
 enum HttpStatus{
 	Ok,
-	NotFound
+	NotFound,
+	InternalError,
+	HttpStatusEnumSize,
 };
 
 
-const std::array<int, 2> HttpStatusCode = {200, 404};
-const std::array<std::string, 2> HttpStatusText = {"Ok", "Not Found"};
+const std::array<int, HttpStatus::HttpStatusEnumSize> HttpStatusCode = {200, 404, 500};
+const std::array<std::string, HttpStatus::HttpStatusEnumSize> HttpStatusText = {"Ok", "Not Found", "Internal Error"};
 
 std::string response_status_line(HttpStatus status){
 	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
@@ -105,6 +112,8 @@ RequestHeaders parse_request_headers(const std::string& req){
 	return req_headers;
 }
 
+std::string base_filepath;
+
 void handleConnection(int client_fd){
 	  std::cout << "Client connected\n";
 
@@ -141,7 +150,33 @@ void handleConnection(int client_fd){
 		response = response_status_line(HttpStatus::Ok);
 		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
 	}
+	else if (start_line.path.starts_with("/files/")){
+		std::string filepath = start_line.path.substr(7);
+
+		fs::path fullpath(base_filepath);
+		fullpath /= filepath;
+
+		std::cout << "Asking for file: " << fullpath << std::endl;
+
+		if (fs::exists(fullpath)){
+			std::ifstream fi(fullpath);
+			if (!fi.is_open()){
+				std::cerr << "Error opening file " << fullpath << std::endl;
+				response = response_status_line(HttpStatus::InternalError) + "Content-Length: 0\r\n\r\n";
+			}
+			else{
+				std::string payload(std::istreambuf_iterator<char>{fi}, {});
+
+				response = response_status_line(HttpStatus::Ok);
+				response = response + "Content-Type: application/octet-stream\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+			}
+		}
+		else {
+			goto R404;
+		}
+	}
 	else{
+		R404:
 		response = response_status_line(HttpStatus::NotFound) + "Content-Length: 0\r\n\r\n";
 	}
 
@@ -150,6 +185,18 @@ void handleConnection(int client_fd){
 }
 
 int main(int argc, char **argv) {
+
+	if (argc > 1){
+		if (strcmp(argv[1],"--directory") == 0){
+			if (argc < 3){
+				std::cerr << "Expected <directory>\nUsage: ./your_server.sh --directory <directory>\n";
+				return 1;
+			}
+			else{
+				base_filepath = argv[2];
+			}
+		}
+	}
 
   // Uncomment this block to pass the first stage
   
