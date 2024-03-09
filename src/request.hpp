@@ -20,6 +20,7 @@ struct ParsingError {
 class HttpRequest{
 	std::array<std::string, HttpHeader::HttpHeaderEnumSize> _headers;
 	std::string _buff;
+	ssize_t _bytes;
 	std::string _body;
 	bool _body_received = false;
 	int _socket_fd;
@@ -42,15 +43,14 @@ public:
 	HttpRequest(int socket_fd): _socket_fd(socket_fd){
 		_buff.resize(REQUEST_BUFFER_SIZE + 1);
 
-		ssize_t bytes;
-		recv(_socket_fd, _buff.data(), REQUEST_BUFFER_SIZE, 0);
-		if (bytes < 0){
-			throw "Failed to receive with code " + std::to_string(bytes);
+		_bytes = recv(_socket_fd, _buff.data(), REQUEST_BUFFER_SIZE, 0);
+		if (_bytes < 0){
+			throw "Failed to receive with code " + std::to_string(_bytes);
 		}
 
 		_parse_header(_buff);
 		size_t pos = _buff.find("\r\n\r\n");
-		_body = _buff.substr(pos + 4, bytes - pos - 4);
+		_body = _buff.substr(pos + 4, _bytes - pos - 4);
 	}
 
 	/**
@@ -67,10 +67,9 @@ public:
 	*/
 	const std::string& body(){
 		if (!_body_received) {
-			while (true) {
-				ssize_t bytes = recv(_socket_fd, _buff.data(), REQUEST_BUFFER_SIZE, 0);
-				_body.append(_buff.substr(0, bytes));
-				if (bytes < REQUEST_BUFFER_SIZE) break;
+			while (_bytes == REQUEST_BUFFER_SIZE) {
+				_bytes = recv(_socket_fd, _buff.data(), REQUEST_BUFFER_SIZE, 0);
+				_body.append(_buff.substr(0, _bytes));
 			}
 		}
 		
@@ -97,7 +96,7 @@ private:
 		if (it == HttpMethodText.end()){
 			throw ParsingError { "Unrecognized HTTP method `" + method + "`" };
 		}
-		this->method = HttpMethod(it - HttpHeadersText.begin());
+		this->method = HttpMethod(it - HttpMethodText.begin());
 
 
 		// Get headers
