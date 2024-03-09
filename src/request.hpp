@@ -86,6 +86,7 @@ private:
 
 		// Parse start line
 		std::getline(iss, line);
+		trim_return_carriage(line);
 		std::istringstream lineStream(line);
 		lineStream >> method >> this->path >> this->protocol;
 
@@ -103,6 +104,7 @@ private:
 		std::map<std::string, std::string> headers;
 
 		while(std::getline(iss, line)){
+			trim_return_carriage(line);
 			size_t pos = line.find(':');
 			if (pos != std::string::npos) {
 				std::string key = line.substr(0, pos);

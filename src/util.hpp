@@ -16,3 +16,9 @@ std::string tolower(const std::string& s){
 	std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
 	return lower;
 }
+
+void trim_return_carriage(std::string& s){
+	if (s[s.length() - 1] == '\r'){
+		s.resize(s.length() - 1);
+	}
+}
