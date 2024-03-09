@@ -26,7 +26,7 @@ public:
 		_body = body;
 
 		_header += "Content-Type: text/plain\r\n";
-		_header += "Content-Length: " + std::to_string(_body.length()) + "\r\n\r\n";
+		_header += "Content-Length: " + std::to_string(_body.length()) + "\r\n";
 
 		return *this;
 	}
@@ -37,7 +37,7 @@ public:
 		_length = length;
 
 		_header += "Content-Type: application/octet-stream\r\n";
-		_header += "Content-Length: " + std::to_string(length) + "\r\n\r\n";
+		_header += "Content-Length: " + std::to_string(length) + "\r\n";
 
 		return *this;
 	}
@@ -47,6 +47,7 @@ public:
 private:
 	void send(int socket_fd) {
 		::send(socket_fd, (void *) _header.data(), _header.size(), 0);
+		::send(socket_fd, (void *) "\r\n", 2, 0);
 
 		if (_content_type == "text/plain"){
 			ssize_t out_value = ::send(socket_fd, (void *) _body.data(), _body.size(), 0);
