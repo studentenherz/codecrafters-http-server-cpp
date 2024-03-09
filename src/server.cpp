@@ -32,13 +32,12 @@ void handleConnection(int client_fd, std::string base_filepath){
 		std::ifstream fi;
 
 		Dispatcher()
-			.route("/", [](HttpRequest /* r */, std::vector<std::string> /* v */){return HttpStatus::Ok;})
-			.route("/echo/(.*)", [](HttpRequest /* r */, std::vector<std::string> v){ return HttpResponse().text(v[0]);})
-			.route("/user-agent", [](const HttpRequest& req, auto /* v */){return HttpResponse().text(req[HttpHeader::UserAgent]);})
-			.route("/files/(.*)", [&base_filepath, &fi](HttpRequest /* r */, std::vector<std::string> params){
-				std::string filepath = params[0];
+			.get("/", [](HttpRequest /* r */, std::vector<std::string> /* v */){return HttpStatus::Ok;})
+			.get("/echo/(.*)", [](HttpRequest /* r */, std::vector<std::string> v){ return HttpResponse().text(v[0]);})
+			.get("/user-agent", [](const HttpRequest& req, auto /* v */){return HttpResponse().text(req[HttpHeader::UserAgent]);})
+			.get("/files/(.*)", [&base_filepath, &fi](HttpRequest /* r */, std::vector<std::string> params){
 				fs::path fullpath(base_filepath);
-				fullpath /= filepath;
+				fullpath /= params[0];
 
 				if (fs::exists(fullpath)){
 					if (fi.is_open()) fi.close();
@@ -53,8 +52,26 @@ void handleConnection(int client_fd, std::string base_filepath){
 							.stream(fi, length);
 					}
 				}
-				
+
 				return HttpResponse(HttpStatus::NotFound);
+			})
+			.post("/files/(.*)", [&base_filepath](HttpRequest& req, std::vector<std::string> params) {
+				fs::path fullpath(base_filepath);
+				fullpath /= params[0];
+				
+				if (fullpath.has_filename()){
+					fs::create_directories(fullpath.parent_path());
+					std::ofstream fo(fullpath, std::ios::binary);
+					if (fo.is_open()){
+						std::cout << req.body() << std::endl;
+
+						fo.write(req.body().data(), req.body().length());
+						fo.close();
+						return HttpStatus::Created;
+					}
+				}
+
+				return HttpStatus::BadRequest;
 			})
 			.dispatch(req, client_fd);
 
@@ -69,7 +86,7 @@ void handleConnection(int client_fd, std::string base_filepath){
 }
 
 int main(int argc, char **argv) {
-	std::string base_filepath;
+	std::string base_filepath = ".";
 
 	if (argc > 1){
 		if (strcmp(argv[1],"--directory") == 0){

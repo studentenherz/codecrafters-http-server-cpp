@@ -69,13 +69,15 @@ const std::array<std::string, HttpHeader::HttpHeaderEnumSize> HttpHeadersText = 
 
 enum HttpStatus{
 	Ok,
+	Created,
+	BadRequest,
 	NotFound,
 	InternalError,
 	HttpStatusEnumSize,
 };
 
-const std::array<int, HttpStatus::HttpStatusEnumSize> HttpStatusCode = {200, 404, 500};
-const std::array<std::string, HttpStatus::HttpStatusEnumSize> HttpStatusText = {"Ok", "Not Found", "Internal Error"};
+const std::array<int, HttpStatus::HttpStatusEnumSize> HttpStatusCode = {200, 201, 400, 404, 500};
+const std::array<std::string, HttpStatus::HttpStatusEnumSize> HttpStatusText = {"Ok", "Created", "BadRequest", "Not Found", "Internal Error"};
 
 enum HttpProtocol{
 	HTTP1,
