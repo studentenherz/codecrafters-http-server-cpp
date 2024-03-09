@@ -16,23 +16,9 @@
 #include <iterator>
 
 #include "request.hpp"
+#include "response.hpp"
 
 namespace fs = std::filesystem;
-
-enum HttpStatus{
-	Ok,
-	NotFound,
-	InternalError,
-	HttpStatusEnumSize,
-};
-
-
-const std::array<int, HttpStatus::HttpStatusEnumSize> HttpStatusCode = {200, 404, 500};
-const std::array<std::string, HttpStatus::HttpStatusEnumSize> HttpStatusText = {"Ok", "Not Found", "Internal Error"};
-
-std::string response_status_line(HttpStatus status){
-	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
-}
 
 void handleConnection(int client_fd, std::string base_filepath){
 	using namespace std::chrono_literals;
@@ -44,18 +30,20 @@ void handleConnection(int client_fd, std::string base_filepath){
 
 		std::string response;
 		if (req.path == "/"){
-			response = response_status_line(HttpStatus::Ok) + "Content-Length: 0\r\n\r\n";
+			HttpResponse(HttpStatus::Ok)
+				.send(client_fd);
 		}
 		else if (req.path.starts_with("/echo/")){
-			response = response_status_line(HttpStatus::Ok);
-			std::string payload = req.path.substr(6);
-			response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-
+			std::string body = req.path.substr(6);
+			HttpResponse(HttpStatus::Ok)
+				.text(body)
+				.send(client_fd);
 		}
 		else if (req.path == "/user-agent"){
-			std::string payload = req[HttpHeader::UserAgent];
-			response = response_status_line(HttpStatus::Ok);
-			response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+			std::string body = req[HttpHeader::UserAgent];
+			HttpResponse(HttpStatus::Ok)
+				.text(body)
+				.send(client_fd);
 		}
 		else if (req.path.starts_with("/files/")){
 			std::string filepath = req.path.substr(7);
@@ -69,27 +57,14 @@ void handleConnection(int client_fd, std::string base_filepath){
 				std::ifstream fi(fullpath);
 				if (!fi.is_open()){
 					std::cerr << "Error opening file " << fullpath << std::endl;
-					response = response_status_line(HttpStatus::InternalError) + "Content-Length: 0\r\n\r\n";
+					HttpResponse(HttpStatus::InternalError)
+						.send(client_fd);
 				}
 				else{
-					std::string payload(std::istreambuf_iterator<char>{fi}, {});
-
-					response = response_status_line(HttpStatus::Ok);
-					response = response + "Content-Type: application/octet-stream\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n";
-					
-					
-					send(client_fd, (void *) response.c_str(), response.size(), 0);
-
-					size_t n_blocks = 10;
-					size_t block_size = payload.size() / n_blocks;
-					n_blocks += (payload.size() % n_blocks > 0);
-					for(size_t i = 0; i < n_blocks; i++){
-						std::this_thread::sleep_for(200ms);
-						response = payload.substr(i * block_size, block_size);
-						send(client_fd, (void *) response.c_str(), response.size(), 0);
-					}
-				
-					return;
+					size_t length = fs::file_size(fullpath);
+					HttpResponse(HttpStatus::Ok)
+						.stream(fi, length)
+						.send(client_fd);
 				}
 			}
 			else {
@@ -98,10 +73,10 @@ void handleConnection(int client_fd, std::string base_filepath){
 		}
 		else{
 			R404:
-			response = response_status_line(HttpStatus::NotFound) + "Content-Length: 0\r\n\r\n";
+			HttpResponse(HttpStatus::NotFound)
+				.send(client_fd);
 		}
 
-		send(client_fd, (void *) response.c_str(), response.size(), 0);
 		close(client_fd);
 	}
 	catch (std::string s){
