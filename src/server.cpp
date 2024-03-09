@@ -8,7 +8,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <array>
-// #include <format>
 #include <algorithm>
 #include <regex>
 #include <thread>
@@ -16,9 +15,9 @@
 #include <fstream>
 #include <iterator>
 
-namespace fs = std::filesystem;
+#include "request.hpp"
 
-const size_t REQUEST_BUFFER_SIZE = 2048;
+namespace fs = std::filesystem;
 
 enum HttpStatus{
 	Ok,
@@ -35,156 +34,86 @@ std::string response_status_line(HttpStatus status){
 	return "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
 }
 
-enum HttpMethod{
-	GET,
-	POST
-};
+void handleConnection(int client_fd, std::string base_filepath){
+	using namespace std::chrono_literals;
 
-const std::array<std::string, 2> HttpMethodText = {"GET", "POST"};
+	std::cout << "Client connected\n";
 
-struct RequestStartLine{
-	HttpMethod method;
-	std::string path;
-	std::string protocol;
-};
+	try{
+		HttpRequest req(client_fd);
 
-struct ParsingError {};
+		std::string response;
+		if (req.path == "/"){
+			response = response_status_line(HttpStatus::Ok) + "Content-Length: 0\r\n\r\n";
+		}
+		else if (req.path.starts_with("/echo/")){
+			response = response_status_line(HttpStatus::Ok);
+			std::string payload = req.path.substr(6);
+			response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
 
-bool case_insensitive_equal(std::string s1, std::string s2){
-	if (s1.length() != s2.length()) return false;
-	for(size_t i = 0; i < s1.length(); i++){
-		if (toupper(s1[i]) != toupper(s2[i])) return false;
-	}
-	return true;
-}
+		}
+		else if (req.path == "/user-agent"){
+			std::string payload = req[HttpHeader::UserAgent];
+			response = response_status_line(HttpStatus::Ok);
+			response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
+		}
+		else if (req.path.starts_with("/files/")){
+			std::string filepath = req.path.substr(7);
 
-RequestStartLine parse_request_start_line(const std::string& req){
-	RequestStartLine rsl;
+			fs::path fullpath(base_filepath);
+			fullpath /= filepath;
 
-	std::regex re("(GET|POST) (.+) (.+)", std::regex::icase);
-	std::smatch sm;
-	if (std::regex_search(req, sm, re)){
-		for (size_t i = 0; i < HttpMethodText.size(); i++){
-			if (case_insensitive_equal(HttpMethodText[i], sm[1])){
-				rsl.method = HttpMethod(i);
-				break;
+			std::cout << "Asking for file: " << fullpath << std::endl;
+
+			if (fs::exists(fullpath)){
+				std::ifstream fi(fullpath);
+				if (!fi.is_open()){
+					std::cerr << "Error opening file " << fullpath << std::endl;
+					response = response_status_line(HttpStatus::InternalError) + "Content-Length: 0\r\n\r\n";
+				}
+				else{
+					std::string payload(std::istreambuf_iterator<char>{fi}, {});
+
+					response = response_status_line(HttpStatus::Ok);
+					response = response + "Content-Type: application/octet-stream\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n";
+					
+					
+					send(client_fd, (void *) response.c_str(), response.size(), 0);
+
+					size_t n_blocks = 10;
+					size_t block_size = payload.size() / n_blocks;
+					n_blocks += (payload.size() % n_blocks > 0);
+					for(size_t i = 0; i < n_blocks; i++){
+						std::this_thread::sleep_for(200ms);
+						response = payload.substr(i * block_size, block_size);
+						send(client_fd, (void *) response.c_str(), response.size(), 0);
+					}
+				
+					return;
+				}
+			}
+			else {
+				goto R404;
 			}
 		}
-
-		rsl.path = sm[2];
-		rsl.protocol = sm[3];
-	}
-
-	return rsl;
-}
-
-enum HttpRequestHeader{
-	UserAgent,
-	Host
-};
-
-class RequestHeaders{
-	std::array<std::string, 2> _headers;
-public:
-	std::string& operator[](HttpRequestHeader header){
-		return _headers[(size_t) header];
-	}
-
-	const std::string& operator[](HttpRequestHeader header) const {
-		return _headers[(size_t) header];
-	}
-};
-
-const std::array<std::string, 2> RequestHeadersText = {"User-Agent", "Host"};
-
-RequestHeaders parse_request_headers(const std::string& req){
-	RequestHeaders req_headers;
-
-	for (size_t i = 0; i < RequestHeadersText.size(); i++){
-		std::string reg = RequestHeadersText[i] + ": (.+)";
-		std::regex re(reg, std::regex::icase);
-		std::smatch sm;
-		if (std::regex_search(req, sm, re)){
-			req_headers[HttpRequestHeader(i)] = sm[1];
+		else{
+			R404:
+			response = response_status_line(HttpStatus::NotFound) + "Content-Length: 0\r\n\r\n";
 		}
+
+		send(client_fd, (void *) response.c_str(), response.size(), 0);
+		close(client_fd);
 	}
-
-	return req_headers;
-}
-
-std::string base_filepath;
-
-void handleConnection(int client_fd){
-	  std::cout << "Client connected\n";
-
-	std::string buff;
-	buff.resize(REQUEST_BUFFER_SIZE);
-	if (ssize_t bytes = recv(client_fd, buff.data(), REQUEST_BUFFER_SIZE, 0); bytes > 0){
-		std::cout << bytes << " bytes received:\n\n";
+	catch (std::string s){
+		std::cerr << s << std::endl;
 	}
-	else if (bytes < 0){
-		std::cerr << "Failed to receive with code " << bytes << std::endl;
-		exit(1);
+	catch (ParsingError p){
+		std::cerr << p.msg << std::endl;
 	}
-
-	std::cout << buff;
-
-	auto start_line = parse_request_start_line(buff);
-
-	std::string response;
-	if (start_line.path == "/"){
-		response = response_status_line(HttpStatus::Ok) + "Content-Length: 0\r\n\r\n";
-	}
-	else if (start_line.path.starts_with("/echo/")){
-		response = response_status_line(HttpStatus::Ok);
-		std::string payload = start_line.path.substr(6);
-		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-
-	}
-	else if (start_line.path == "/user-agent"){
-		auto req_headers = parse_request_headers(buff);
-		std::cout << req_headers[HttpRequestHeader::UserAgent] << std::endl;
-		std::cout << req_headers[HttpRequestHeader::Host] << std::endl;
-
-		std::string payload = req_headers[HttpRequestHeader::UserAgent];
-		response = response_status_line(HttpStatus::Ok);
-		response = response + "Content-Type: text/plain\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-	}
-	else if (start_line.path.starts_with("/files/")){
-		std::string filepath = start_line.path.substr(7);
-
-		fs::path fullpath(base_filepath);
-		fullpath /= filepath;
-
-		std::cout << "Asking for file: " << fullpath << std::endl;
-
-		if (fs::exists(fullpath)){
-			std::ifstream fi(fullpath);
-			if (!fi.is_open()){
-				std::cerr << "Error opening file " << fullpath << std::endl;
-				response = response_status_line(HttpStatus::InternalError) + "Content-Length: 0\r\n\r\n";
-			}
-			else{
-				std::string payload(std::istreambuf_iterator<char>{fi}, {});
-
-				response = response_status_line(HttpStatus::Ok);
-				response = response + "Content-Type: application/octet-stream\r\nContent-Length: " + std::to_string(payload.length()) + "\r\n\r\n" + payload;
-			}
-		}
-		else {
-			goto R404;
-		}
-	}
-	else{
-		R404:
-		response = response_status_line(HttpStatus::NotFound) + "Content-Length: 0\r\n\r\n";
-	}
-
-	send(client_fd, (void *) response.c_str(), response.size(), 0);
-	close(client_fd);
 }
 
 int main(int argc, char **argv) {
+	std::string base_filepath;
 
 	if (argc > 1){
 		if (strcmp(argv[1],"--directory") == 0){
@@ -239,7 +168,7 @@ int main(int argc, char **argv) {
 	while(true){
   	int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
 
-		std::thread new_thread(handleConnection, client_fd);
+		std::thread new_thread(handleConnection, client_fd, base_filepath);
 		new_thread.detach();
 	}
   
