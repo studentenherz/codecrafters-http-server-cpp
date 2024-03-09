@@ -18,7 +18,7 @@ class HttpResponse {
 	std::istream *_is;
 	size_t _length;
 public:
-	HttpResponse(HttpStatus status, HttpProtocol protocol = HttpProtocol::HTTP1_1){
+	HttpResponse(HttpStatus status = HttpStatus::Ok, HttpProtocol protocol = HttpProtocol::HTTP1_1){
 		_header = "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
 	}
 

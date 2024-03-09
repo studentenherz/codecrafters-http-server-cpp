@@ -30,18 +30,18 @@ void handleConnection(int client_fd, std::string base_filepath){
 
 		std::string response;
 		if (req.path == "/"){
-			HttpResponse(HttpStatus::Ok)
+			HttpResponse()
 				.send(client_fd);
 		}
 		else if (req.path.starts_with("/echo/")){
 			std::string body = req.path.substr(6);
-			HttpResponse(HttpStatus::Ok)
+			HttpResponse()
 				.text(body)
 				.send(client_fd);
 		}
 		else if (req.path == "/user-agent"){
 			std::string body = req[HttpHeader::UserAgent];
-			HttpResponse(HttpStatus::Ok)
+			HttpResponse()
 				.text(body)
 				.send(client_fd);
 		}
@@ -62,7 +62,7 @@ void handleConnection(int client_fd, std::string base_filepath){
 				}
 				else{
 					size_t length = fs::file_size(fullpath);
-					HttpResponse(HttpStatus::Ok)
+					HttpResponse()
 						.stream(fi, length)
 						.send(client_fd);
 				}
