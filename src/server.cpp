@@ -17,6 +17,7 @@
 
 #include "request.hpp"
 #include "response.hpp"
+#include "dispatcher.hpp"
 
 namespace fs = std::filesystem;
 
@@ -28,54 +29,34 @@ void handleConnection(int client_fd, std::string base_filepath){
 	try{
 		HttpRequest req(client_fd);
 
-		std::string response;
-		if (req.path == "/"){
-			HttpResponse()
-				.send(client_fd);
-		}
-		else if (req.path.starts_with("/echo/")){
-			std::string body = req.path.substr(6);
-			HttpResponse()
-				.text(body)
-				.send(client_fd);
-		}
-		else if (req.path == "/user-agent"){
-			std::string body = req[HttpHeader::UserAgent];
-			HttpResponse()
-				.text(body)
-				.send(client_fd);
-		}
-		else if (req.path.starts_with("/files/")){
-			std::string filepath = req.path.substr(7);
+		std::ifstream fi;
 
-			fs::path fullpath(base_filepath);
-			fullpath /= filepath;
+		Dispatcher()
+			.route("/", [](HttpRequest /* r */, std::vector<std::string> /* v */){return HttpStatus::Ok;})
+			.route("/echo/(.*)", [](HttpRequest /* r */, std::vector<std::string> v){ return HttpResponse().text(v[0]);})
+			.route("/user-agent", [](const HttpRequest& req, auto /* v */){return HttpResponse().text(req[HttpHeader::UserAgent]);})
+			.route("/files/(.*)", [&base_filepath, &fi](HttpRequest /* r */, std::vector<std::string> params){
+				std::string filepath = params[0];
+				fs::path fullpath(base_filepath);
+				fullpath /= filepath;
 
-			std::cout << "Asking for file: " << fullpath << std::endl;
-
-			if (fs::exists(fullpath)){
-				std::ifstream fi(fullpath);
-				if (!fi.is_open()){
-					std::cerr << "Error opening file " << fullpath << std::endl;
-					HttpResponse(HttpStatus::InternalError)
-						.send(client_fd);
+				if (fs::exists(fullpath)){
+					if (fi.is_open()) fi.close();
+					fi.open(fullpath);
+					if (!fi.is_open()){
+						std::cerr << "Error opening file " << fullpath << std::endl;
+						return HttpResponse(HttpStatus::InternalError);
+					}
+					else{
+						size_t length = fs::file_size(fullpath);
+						return HttpResponse()
+							.stream(fi, length);
+					}
 				}
-				else{
-					size_t length = fs::file_size(fullpath);
-					HttpResponse()
-						.stream(fi, length)
-						.send(client_fd);
-				}
-			}
-			else {
-				goto R404;
-			}
-		}
-		else{
-			R404:
-			HttpResponse(HttpStatus::NotFound)
-				.send(client_fd);
-		}
+				
+				return HttpResponse(HttpStatus::NotFound);
+			})
+			.dispatch(req, client_fd);
 
 		close(client_fd);
 	}

@@ -56,7 +56,7 @@ public:
 	/**
 	 * Get the value of a header
 	*/
-	std::string operator[](HttpHeader header){
+	std::string operator[](HttpHeader header) const {
 		return _headers[(size_t) header];
 	}
 
