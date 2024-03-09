@@ -3,7 +3,6 @@
 #include <array>
 #include <fstream>
 #include <string>
-#include <string_view>
 #include <iostream>
 #include <sys/socket.h>
 
@@ -14,11 +13,11 @@ const size_t RESPONSE_BUFFER_SIZE = 8192;
 class HttpResponse {
 	std::string _header;
 	std::string _content_type;
-	std::string_view _body;
+	std::string _body;
 	std::istream *_is;
 	size_t _length;
 public:
-	HttpResponse(HttpStatus status = HttpStatus::Ok, HttpProtocol protocol = HttpProtocol::HTTP1_1){
+	HttpResponse(HttpStatus status = HttpStatus::Ok){
 		_header = "HTTP/1.1 " + std::to_string(HttpStatusCode[status]) + " " + HttpStatusText[status] + "\r\n";
 	}
 
@@ -27,7 +26,7 @@ public:
 		_body = body;
 
 		_header += "Content-Type: text/plain\r\n";
-		_header += "Content-Length: " + std::to_string(_body.length()) + "\r\n";
+		_header += "Content-Length: " + std::to_string(_body.length()) + "\r\n\r\n";
 
 		return *this;
 	}
@@ -38,17 +37,19 @@ public:
 		_length = length;
 
 		_header += "Content-Type: application/octet-stream\r\n";
-		_header += "Content-Length: " + std::to_string(length) + "\r\n";
+		_header += "Content-Length: " + std::to_string(length) + "\r\n\r\n";
 
 		return *this;
 	}
 
+ 	friend void send(HttpResponse res, int socket_fd);
+
+private:
 	void send(int socket_fd) {
-		_header += "\r\n";
 		::send(socket_fd, (void *) _header.data(), _header.size(), 0);
 
 		if (_content_type == "text/plain"){
-			::send(socket_fd, (void *) _body.data(), _body.size(), 0);
+			ssize_t out_value = ::send(socket_fd, (void *) _body.data(), _body.size(), 0);
 		}
 		else if (_content_type == "application/octet-stream"){
 			size_t n_blocks = _length / RESPONSE_BUFFER_SIZE;
@@ -64,3 +65,7 @@ public:
 		}
 	}
 };
+
+void send(HttpResponse res, int socket_fd) {
+	res.send(socket_fd);
+}
